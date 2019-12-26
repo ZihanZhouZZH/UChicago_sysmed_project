@@ -1,0 +1,12 @@
+name: patients
+title: patients
+username:
+account: zihanzhou
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1619023
+bundleId: 2691462
+url: https://zihanzhou.shinyapps.io/patients/
+when: 1577333613.4881
+asMultiple: FALSE
+asStatic: FALSE

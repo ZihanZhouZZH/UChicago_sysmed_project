@@ -1,0 +1,250 @@
+---
+title: "Data Challegnge"
+author: "Zihan Zhou"
+date: "12/16/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Part1
+
+## Load Package and Data
+
+```{r warning=FALSE}
+library(feather)
+library(dplyr)
+library(tidyverse)
+library(qwraps2)
+library(magrittr)
+options(qwraps2_markup = "markdown")
+```
+
+```{r warning=FALSE}
+allergies = read_feather('../data/allergies.feather')
+careplans = read_feather('../data/careplans.feather')
+conditions = read_feather('../data/conditions.feather')
+encounters = read_feather('../data/encounters.feather')
+immunizations = read_feather('../data/immunizations.feather')
+medications = read_feather('../data/medications.feather')
+observations = read_feather('../data/observations.feather')
+patients = read_feather('../data/patients.feather')
+procedures = read_feather('../data/procedures.feather')
+```
+
+## 1. Data Inspection
+
+We take a look of what information each dataframe contains one by one.
+
+```{r}
+head(allergies)
+```
+
+The $\texttt{allergies}$ dataframe contains the information about one allergy description of a patient, with the ID of the patient, ID of the encounter and time periods of allergies.
+
+```{r}
+head(careplans)
+```
+
+The $\texttt{careplans}$ dataframe contains treatments on a certain reason for an individual patient. The **CODE** column corresponds to treatments (e.g. 53950000 corresponds to 'Respiratory therapy' in the $0^{\text{th}}$ and $6^{\text{th}}$ sample). The **START** and **STOP** columns should be the dates that the patient starts and stops to receive the corresponding treatment.
+
+```{r}
+head(conditions)
+```
+
+The $\texttt{conditions}$ is a subset of $\texttt{careplans}$, containing the diagnosis of a patient on an encounter and its time period.
+
+```{r}
+head(encounters)
+```
+
+The $\texttt{encounters}$ has the description of an encounter and its reason.
+
+```{r}
+head(immunizations)
+```
+
+The $\texttt{immunizations}$ contains patients' immunization injection history.
+
+```{r}
+head(medications)
+```
+
+The $\texttt{medications}$ has the similar structure with $\texttt{careplans}$, which substitutes treatments with medicines.
+
+```{r}
+head(observations)
+```
+
+The $\texttt{observations}$ contains basic body measure data of patients. 
+
+```{r}
+head(patients)
+```
+
+The $\texttt{patients}$ contains personal information of patients, such as name, age, ID number, etc.
+
+```{r}
+head(procedures)
+```
+
+The $\texttt{procedures}$ contains medical procedures patients receive in an encounter.
+
+We have gone through all dataframes given. The dataset provides us with personal information of patients, along with reason for each encounter and specific treatments and medicines each patient receives.
+
+## 2. Summary Statistics
+
+First we filter out visits from 2008 to 2016 and summarize information from different dataframes into one.
+
+```{r}
+start_date <- as.Date('2008-01-01')
+end_date <- as.Date('2016-12-31')
+encounters$DATE <- as.Date(encounters$DATE)
+
+# Construct the new dataframe based on encounters
+new_df <- encounters %>%
+  filter((DATE >= start_date) & (DATE <= end_date))
+
+# Sort by DATE
+#new_df <- new_df[with(new_df, order(DATE)),]
+
+# Add patients' information
+#new_df <- left_join(new_df, patients, by = c('PATIENT' = 'ID'))
+
+# Add conditions
+#new_df <- left_join(new_df, conditions, 
+ #                    by = c('PATIENT' = 'PATIENT', 'ID' = 'ENCOUNTER'))
+```
+
+```{r}
+build_table <- function(data, variable, n, col_name){
+  #"""
+  #Return the table with top n categories for variable in data
+  #"""
+  counts <- data %>%
+    group_by_at(variable) %>%
+    dplyr::count(sort = TRUE)
+  
+  tb_list = list()
+  for(i in 1:n){
+    name <- eval(parse(text = paste0('counts$',variable,'[',i,']')))
+    temp <- paste0('tb_list$`',name,
+                   '` <- ~ qwraps2::n_perc0(.data$',variable,' == "',name,'",na_rm = TRUE)')
+    eval(parse(text = temp))
+  }
+  
+  summary1 <- eval(parse(text=paste0('list("',col_name,'"= tb_list)')))
+  
+  tab1 <- summary_table(data, summary1)
+  return(tab1)
+}
+```
+
+```{r, results='asis'}
+#Create separate tables and bind them at last
+
+table_reason <- build_table(new_df, 'DESCRIPTION', 6, 'Most common reason for visit')
+cname <- 'Encounters (n = 18,110)'
+colnames(table_reason) <- cname
+
+table_diagnosis <- build_table(new_df %>% filter(!is.na(REASONDESCRIPTION)), 
+                               'REASONDESCRIPTION', 6, 'Most common medical conditions')
+colnames(table_diagnosis) <- cname
+
+table_race <- build_table(patients, 'RACE', length(unique(patients$RACE)),
+                          'RACE')
+colnames(table_race) <- cname
+
+age_summary <- patients %>%
+  dplyr::select(AGE) %>%
+  qsummary(.,
+           numeric_summaries = list('Minimum' = '~ min(%s)',
+                                    'Maximum' = '~ max(%s)',
+                                    'Median (interquartile range) age' = '~ median_iqr(%s)'))
+table_age <- summary_table(patients, age_summary)
+colnames(table_age) <- cname
+
+no_summary <- 
+  list('No of patients' = list('N' = ~ length(.data$ID)))
+table_no <- summary_table(patients, no_summary)
+colnames(table_no) <- cname
+
+table_sex <- build_table(patients, 'GENDER', 2, 'Gender')
+colnames(table_sex) <- cname
+
+final_table <- rbind(table_no, table_reason, table_diagnosis, table_age, table_race, table_sex)
+```
+
+## 3. Run a simple model
+
+```{r, results='asis'}
+library(lubridate)
+
+# Load in income data
+income <- read_csv('../data/Income.csv')
+income$zip <- substr(income$GEO_ID, 10, 14)
+income <- tibble(zip = income$zip, 
+                     income = income$S1903_C02_001E)
+income$zip <- as.character(income$zip)
+income$income <- as.numeric(income$income)
+
+# Add mortality
+new_df <- left_join(new_df, patients %>%
+                      select(ID, DEATHDATE), by = c('PATIENT' = 'ID'))
+
+new_df <- new_df %>%
+  mutate(DATE = lubridate::as_date(DATE), DEATHDATE = lubridate::as_date(DEATHDATE)) %>%
+  mutate(MORTALITY = (DATE %--% DEATHDATE)/dyears(1))
+
+# Add zipcode
+patients <- patients %>%
+  mutate(zip = substr(ADDRESS, nchar(ADDRESS)-7, nchar(ADDRESS)-3))
+
+new_df <- left_join(new_df, patients %>%
+                      select(ID, zip, RACE), by = c('PATIENT' = 'ID'))
+new_df <- left_join(new_df, income, by = c('zip' = 'zip'))
+
+# Create income table
+income_summary <- new_df %>%
+  dplyr::select(income) %>%
+  qsummary(.,
+           numeric_summaries = list('Minimum' = '~ min(%s)',
+                                    'Maximum' = '~ max(%s)',
+                                    'Median (interquartile range) age' = '~ median_iqr(%s)'))
+table_income <- summary_table(new_df, income_summary)
+colnames(table_income) <- cname
+
+final_table <- rbind(final_table, table_income)
+print(final_table)
+```
+
+```{r}
+new_df_2 <- new_df %>%
+  filter(!is.na(MORTALITY))
+
+fit <- lm(MORTALITY ~ income + RACE, data = new_df_2)
+summary(fit)
+```
+
+It seems like mortality has little relevance to income, but rather higher relevance to race.
+
+# Part2
+
+## 1.
+
+I might consider using time-series models for the prediction, since we are given a large amount of data, with a time-series nature. 
+
+## 2.
+
+Let $A$ denote the event that the chosen individual has the condition. Then $P(A) = \frac{1}{12}$. We want $P(A|\text{test positive})$.
+
+\begin{align*}
+P(A|\text{test positive}) &= \frac{P(\text{test positive}|A)P(A)}{P(\text{test positive})} \\
+&= \frac{P(\text{test = 1, +}|A)P(A) + P(\text{test = 2, +}|A)P(A)}{\sum_{i=1}^2 \left[P(\text{test $=i$, +},A)+P(\text{test $=i$, +},A^c)\right]} \\
+&= \frac{P(\text{+}|\text{test = 1},A)P(\text{test = 1}|A)P(A) + P(\text{+}|\text{test = 2},A)P(\text{test = 2}|A)P(A)}{\sum_{i=1}^2 \left[P(\text{test $=i$, +},A)+P(\text{test $=i$, +},A^c)\right]} \\
+&= \frac{1\times\frac{1}{3}\times\frac{1}{12} + \frac{5}{6}\times\frac{2}{3}\times\frac{1}{12}}{1\times\frac{1}{3}\times\frac{1}{12} + \frac{5}{6}\times\frac{2}{3}\times\frac{1}{12} + \sum_{i=1}^2 P(\text{test $=i$},+,A^c)} \\
+&= \frac{\frac{2}{27}}{\frac{2}{27} + P(\text{+}|\text{test = 1},A^c)P(\text{test = 1}|A^c)P(A^c) + P(\text{+}|\text{test = 2},A^c)P(\text{test = 2}|A^c)P(A^c)} \\
+&= \frac{\frac{2}{27}}{\frac{2}{27}+\frac{1}{2}\times\frac{1}{3}\times\frac{11}{12} + \frac{1}{4}\times\frac{2}{3}\times\frac{11}{12}} = \frac{8}{41}
+\end{align*}
